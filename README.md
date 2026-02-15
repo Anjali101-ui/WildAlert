@@ -63,14 +63,12 @@ PROJECT DOCUMENTATION
 
 
 
-<img width="1160" height="730" alt="Screenshot 2026-02-15 at 11 29 03 AM" src="https://github.com/user-attachments/assets/41463f27-6039-44ba-8eae-8419a028302e" />
-System Architecture
+<img width="1208" height="808" alt="image" src="https://github.com/user-attachments/assets/dbd7f13b-b260-4637-a40c-0b0695624909" />
 
 
 
-<img width="1470" height="727" alt="Screenshot 2026-02-15 at 11 30 01 AM" src="https://github.com/user-attachments/assets/e55cf12a-a486-4da7-a155-2e1a88eabc48" />
-Final Output Dashboard
 
+<img width="1711" height="791" alt="image" src="https://github.com/user-attachments/assets/c6ee05c6-ba07-4c30-837e-cd4b175f49d9" />
 
 
 
