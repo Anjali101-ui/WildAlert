@@ -5,7 +5,7 @@ import instagram from "../assets/assets/instagram-removebg-preview.png";
 import twitter from "../assets/assets/twitter-removebg-preview.png";
 import google from "../assets/assets/Google_logo.png";
 import { useNavigate } from "react-router-dom";
-import { auth, provider, signInWithPopup } from "../firebaseConfig";
+
 
 const Header = () => {
   const navigate = useNavigate();
