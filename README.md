@@ -42,7 +42,6 @@ WildGuard uses live video feeds, AI-based animal detection (YOLOv8), risk assess
 * Real-time animal detection via live video feed  
 * Dashboard showing animal type, speed, direction, ETA, and risk level  
 * Map visualization using Leaflet and OpenStreetMap  
-* Alerts for high-risk animal movement  
 * Optional database logging for detection events  
 
 
@@ -63,6 +62,14 @@ python3 -m pip install -r requirements.txt
 PROJECT DOCUMENTATION
 
 
+
+<img width="1160" height="730" alt="Screenshot 2026-02-15 at 11 29 03 AM" src="https://github.com/user-attachments/assets/41463f27-6039-44ba-8eae-8419a028302e" />
+System Architecture
+
+
+
+<img width="1470" height="727" alt="Screenshot 2026-02-15 at 11 30 01 AM" src="https://github.com/user-attachments/assets/e55cf12a-a486-4da7-a155-2e1a88eabc48" />
+Final Output Dashboard
 
 
 
