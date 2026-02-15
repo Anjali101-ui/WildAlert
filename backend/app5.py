@@ -1,4 +1,4 @@
-from flask import Flask, Response
+from flask import Flask, Response, jsonify
 from ultralytics import YOLO
 import cv2
 import os
@@ -6,6 +6,8 @@ import time
 import math
 import requests
 from datetime import datetime
+import threading
+import json
 
 app = Flask(__name__)
 
@@ -17,24 +19,23 @@ print(f"Attempting to open video at: {VIDEO_PATH}")
 
 CLASSES = ["tiger", "bear", "elephant", "wild boar", "lion", "wild buffalo"]
 
-# -------------------- CAMERA GPS (Wayanad Forest Edge) --------------------
+# -------------------- CAMERA GPS --------------------
 CAMERA_ID = "CAM_WAYANAD_01"
 CAMERA_LAT = 11.6400
 CAMERA_LON = 76.1200
 
-# -------------------- NEARBY TOWNS IN WAYANAD --------------------
+# -------------------- NEARBY VILLAGES --------------------
 VILLAGES = [
     {"name": "Kalpetta", "lat": 11.6100, "lon": 76.0820},
     {"name": "Mananthavady", "lat": 11.8014, "lon": 76.0025},
     {"name": "Sulthan Bathery", "lat": 11.6656, "lon": 76.2731}
 ]
 
-# -------------------- WEBHOOK --------------------
-WEBHOOK_URL = "http://127.0.0.1:5678/webhook/wildlife-alert"
+# -------------------- GLOBAL STORAGE --------------------
+latest_detection = None
 
 
-# -------------------- FUNCTIONS --------------------
-
+# -------------------- GEO FUNCTION --------------------
 def haversine(lat1, lon1, lat2, lon2):
     R = 6371000
     phi1 = math.radians(lat1)
@@ -66,16 +67,74 @@ def get_direction(angle):
     else:
         return "SE"
 
-# -------------------- MAIN LOOP --------------------
 
+# -------------------- AI RISK ANALYSIS --------------------
+def call_ollama_async(data):
+    """
+    Runs AI in background so Flask doesn't freeze
+    """
+    global latest_detection
+
+    prompt = f"""
+You are a wildlife risk assessment AI.
+
+Animal: {data['animal']}
+Distance from village: {data['distance_meters']} meters
+Speed: {data['speed_level']}
+Direction: {data['direction']}
+
+Respond strictly in JSON format:
+
+{{
+  "risk": "LOW | MODERATE | HIGH | CRITICAL",
+  "reason": "short explanation"
+}}
+
+No extra text.
+"""
+
+    try:
+        response = requests.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": "qwen2.5:3b",
+                "prompt": prompt,
+                "stream": False
+            },
+            timeout=20
+        )
+
+        result = response.json()
+        raw_text = result.get("response", "").strip()
+
+        # Try parsing JSON from model
+        try:
+            ai_json = json.loads(raw_text)
+            data["ai_risk"] = ai_json.get("risk", "UNKNOWN")
+            data["ai_reason"] = ai_json.get("reason", "")
+        except:
+            data["ai_risk"] = "PARSE_ERROR"
+            data["ai_reason"] = raw_text
+
+        latest_detection = data
+
+    except Exception as e:
+        data["ai_risk"] = "AI_ERROR"
+        data["ai_reason"] = str(e)
+        latest_detection = data
+
+
+# -------------------- MAIN LOOP --------------------
 def generate_frames():
+    global latest_detection
+
     cap = cv2.VideoCapture(VIDEO_PATH)
 
     if not cap.isOpened():
-        print(f"Error: Could not open video file at {VIDEO_PATH}")
+        print("Error: Could not open video")
         return
 
-    print("Video file opened successfully!")
+    print("Video opened successfully")
 
     position_history = []
     prev_time = time.time()
@@ -94,16 +153,14 @@ def generate_frames():
 
         for result in results:
             boxes = result.boxes.xyxy
-            confidences = result.boxes.conf
             class_ids = result.boxes.cls
 
             for i in range(len(boxes)):
                 x1, y1, x2, y2 = map(int, boxes[i])
                 class_id = int(class_ids[i])
                 animal_name = CLASSES[class_id]
-                confidence = confidences[i]
 
-                # -------- CENTER --------
+                # CENTER
                 cx = (x1 + x2) // 2
                 cy = (y1 + y2) // 2
 
@@ -129,7 +186,7 @@ def generate_frames():
                 angle = math.degrees(math.atan2(dy, dx))
                 direction = get_direction(angle)
 
-                # -------- GEO DISTANCE --------
+                # GEO DISTANCE
                 nearest_distance = float('inf')
                 nearest_village = None
 
@@ -139,6 +196,7 @@ def generate_frames():
                         nearest_distance = d
                         nearest_village = v["name"]
 
+                # BASIC RISK
                 if nearest_distance < 300:
                     risk_level = "CRITICAL"
                 elif nearest_distance < 700:
@@ -148,7 +206,7 @@ def generate_frames():
                 else:
                     risk_level = "LOW"
 
-                # -------- DATA --------
+                # DATA STRUCTURE
                 data = {
                     "timestamp": datetime.utcnow().isoformat(),
                     "animal": animal_name,
@@ -159,28 +217,23 @@ def generate_frames():
                     "distance_meters": round(nearest_distance, 2),
                     "risk_level": risk_level,
                     "speed_level": speed_level,
-                    "direction": direction
+                    "direction": direction,
+                    "ai_risk": "Analyzing...",
+                    "ai_reason": ""
                 }
 
-                print(data)
+                latest_detection = data
 
-                try:
-                    response = requests.post(WEBHOOK_URL, json=data)
-                    print("Webhook response:", response.status_code)
-                except Exception as e:
-                    print("Webhook error:", e)
+                # Run AI in background thread
+                threading.Thread(target=call_ollama_async, args=(data.copy(),)).start()
 
-
-                # -------- DRAWING --------
+                # DRAW
                 label = f"{animal_name} ({risk_level})"
                 cv2.rectangle(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
                 cv2.putText(frame, label, (x1, y1 - 10),
                             cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
 
         ret, buffer = cv2.imencode('.jpg', frame)
-        if not ret:
-            continue
-
         frame = buffer.tobytes()
 
         yield (b'--frame\r\n'
@@ -188,14 +241,25 @@ def generate_frames():
 
     cap.release()
 
+
+# -------------------- ROUTES --------------------
 @app.route('/video_feed')
 def video_feed():
     return Response(generate_frames(),
                     mimetype='multipart/x-mixed-replace; boundary=frame')
 
+
+@app.route('/latest')
+def latest():
+    if latest_detection:
+        return jsonify(latest_detection)
+    return jsonify({"message": "No detection yet"})
+
+
 @app.route('/')
 def index():
     return "WildAlert Backend is running!"
+
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000, debug=True)
